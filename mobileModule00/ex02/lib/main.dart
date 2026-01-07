@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:math_expressions/math_expressions.dart';
 
 void main() {
   runApp(const CalculatorApp());
@@ -27,9 +28,125 @@ class CalculatorPage extends StatefulWidget {
 }
 
 class _CalculatorPageState extends State<CalculatorPage> {
+  String _expression = "0";
+  String _result = "0";
+
+  // Method to calculate the result
+  void _calculateResult() {
+    try {
+      // Handle edge cases
+      if (_expression.isEmpty ||
+          (_expression.length == 1 && _expression == "0") ||
+          _endsWithOperator(_expression)) {
+        return;
+      }
+
+      // Parse the expression
+      Parser p = Parser();
+
+      // Replace 'x' with '*' for the parser if needed
+      String finalExpression = _expression;
+
+      // Try to evaluate the expression (v3.1.0 API)
+      Expression exp = p.parse(finalExpression);
+      RealEvaluator evaluator = RealEvaluator();
+      num result = evaluator.evaluate(exp);
+      double eval = result.toDouble();
+
+      // Handle infinity or NaN results
+      if (eval.isInfinite || eval.isNaN) {
+        setState(() {
+          _result = "Error";
+        });
+        return;
+      }
+
+      // Format the result
+      String resultStr = eval.toString();
+      if (resultStr.endsWith('.0')) {
+        resultStr = resultStr.substring(0, resultStr.length - 2);
+      }
+
+      setState(() {
+        _result = resultStr;
+      });
+    } catch (e) {
+      setState(() {
+        _result = "Error";
+        print("Calculation error: $e");
+      });
+    }
+  }
+
+  // Check if string ends with an operator
+  bool _endsWithOperator(String str) {
+    if (str.isEmpty) return false;
+    return ['+', '-', '*', '/', '.'].contains(str[str.length - 1]);
+  }
+
+  // Check if string has consecutive operators
+  bool _hasConsecutiveOperators(String str, String op) {
+    if (str.isEmpty) return false;
+    if (['+', '*', '/'].contains(op) && _endsWithOperator(str)) {
+      return true;
+    }
+    return false;
+  }
+
   // Method to handle button press
   void _buttonPressed(String buttonText) {
     print('button pressed: $buttonText');
+
+    setState(() {
+      if (buttonText == 'AC') {
+        // Clear all
+        _expression = "0";
+        _result = "0";
+      } else if (buttonText == 'C') {
+        // Clear last character
+        if (_expression.length > 1) {
+          _expression = _expression.substring(0, _expression.length - 1);
+        } else {
+          _expression = "0";
+        }
+      } else if (buttonText == '=') {
+        // Calculate result
+        _calculateResult();
+      } else {
+        // Handle negation - allow negative number at the beginning
+        if (buttonText == '-' && _expression == "0") {
+          _expression = buttonText;
+          return;
+        }
+
+        // Handle decimal point
+        if (buttonText == '.' &&
+            _expression.contains('.') &&
+            !_expression.contains(RegExp(r'[+\-*/]'))) {
+          // Avoid duplicate decimal in same number
+          return;
+        }
+
+        // Handle consecutive operators
+        if (_hasConsecutiveOperators(_expression, buttonText)) {
+          // Replace last operator with new one
+          _expression =
+              _expression.substring(0, _expression.length - 1) + buttonText;
+        } else {
+          // Normal input
+          if (_expression == "0" && buttonText != '.') {
+            _expression = buttonText;
+          } else {
+            _expression += buttonText;
+          }
+        }
+      }
+    });
+
+    // Update result in real-time as expression changes
+    if (buttonText != '=' && buttonText != 'AC' && buttonText != 'C') {
+      _calculateResult();
+    }
   }
 
   // Method to build a calculator button
@@ -115,14 +232,14 @@ class _CalculatorPageState extends State<CalculatorPage> {
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Text(
-            "0", // Expression field
+            _expression, // Expression field
             style: TextStyle(fontSize: 24, color: Colors.grey[700]),
             overflow: TextOverflow.ellipsis,
           ),
           const SizedBox(height: 10),
-          const Text(
-            "0", // Result field
-            style: TextStyle(fontSize: 48),
+          Text(
+            _result, // Result field
+            style: const TextStyle(fontSize: 48),
             overflow: TextOverflow.ellipsis,
           ),
         ],
