@@ -143,9 +143,9 @@ class _CalculatorPageState extends State<CalculatorPage> {
     });
 
     // Update result in real-time as expression changes
-    if (buttonText != '=' && buttonText != 'AC' && buttonText != 'C') {
-      _calculateResult();
-    }
+    // if (buttonText != '=' && buttonText != 'AC' && buttonText != 'C') {
+    //   _calculateResult();
+    // }
   }
 
   // Method to build a calculator button
@@ -220,8 +220,12 @@ class _CalculatorPageState extends State<CalculatorPage> {
     );
   }
 
-  // Display area widget
+  // Display area widget with TextFields
   Widget _buildDisplayArea() {
+    // Create controllers that update with current values
+    final expressionController = TextEditingController(text: _expression);
+    final resultController = TextEditingController(text: _result);
+
     return Container(
       color: Colors.grey[200],
       width: double.infinity,
@@ -230,16 +234,28 @@ class _CalculatorPageState extends State<CalculatorPage> {
         mainAxisSize: MainAxisSize.min, // Take minimum height needed
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          Text(
-            _expression, // Expression field
-            style: TextStyle(fontSize: 24, color: Colors.grey[700]),
-            overflow: TextOverflow.ellipsis,
+          // Expression TextField
+          TextField(
+            readOnly: true,
+            controller: expressionController,
+            style: const TextStyle(fontSize: 24, color: Colors.grey),
+            textAlign: TextAlign.right,
+            decoration: const InputDecoration(
+              border: InputBorder.none,
+              contentPadding: EdgeInsets.zero,
+            ),
           ),
           const SizedBox(height: 10),
-          Text(
-            _result, // Result field
+          // Result TextField
+          TextField(
+            readOnly: true,
+            controller: resultController,
             style: const TextStyle(fontSize: 48),
-            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.right,
+            decoration: const InputDecoration(
+              border: InputBorder.none,
+              contentPadding: EdgeInsets.zero,
+            ),
           ),
         ],
       ),
