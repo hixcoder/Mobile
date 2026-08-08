@@ -11,5 +11,8 @@ void main() {
     expect(find.byType(TextField), findsOneWidget);
     expect(find.byIcon(Icons.my_location), findsOneWidget);
     expect(find.byIcon(Icons.search), findsOneWidget);
+    expect(find.text('Currently'), findsWidgets);
+    expect(find.text('Today'), findsOneWidget);
+    expect(find.text('Weekly'), findsOneWidget);
   });
 }

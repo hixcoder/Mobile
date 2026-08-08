@@ -28,6 +28,9 @@ class WeatherPage extends StatefulWidget {
 
 class _WeatherPageState extends State<WeatherPage> {
   final TextEditingController _searchController = TextEditingController();
+  int _selectedTabIndex = 0;
+
+  static const _tabLabels = ['Currently', 'Today', 'Weekly'];
 
   @override
   void dispose() {
@@ -37,6 +40,21 @@ class _WeatherPageState extends State<WeatherPage> {
 
   void _onGeolocationPressed() {
     // TODO: fetch weather for current location
+  }
+
+  void _onTabSelected(int index) {
+    setState(() {
+      _selectedTabIndex = index;
+    });
+  }
+
+  Widget _buildTabContent(int index) {
+    return Center(
+      child: Text(
+        _tabLabels[index],
+        style: Theme.of(context).textTheme.headlineMedium,
+      ),
+    );
   }
 
   @override
@@ -64,8 +82,30 @@ class _WeatherPageState extends State<WeatherPage> {
           ),
         ],
       ),
-      body: const Center(
-        child: Text('Search for a city or use your location'),
+      body: IndexedStack(
+        index: _selectedTabIndex,
+        children: List.generate(
+          _tabLabels.length,
+          _buildTabContent,
+        ),
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _selectedTabIndex,
+        onTap: _onTabSelected,
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.wb_sunny),
+            label: 'Currently',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.today),
+            label: 'Today',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.calendar_view_week),
+            label: 'Weekly',
+          ),
+        ],
       ),
     );
   }
