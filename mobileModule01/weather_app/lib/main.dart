@@ -26,16 +26,27 @@ class WeatherPage extends StatefulWidget {
   State<WeatherPage> createState() => _WeatherPageState();
 }
 
-class _WeatherPageState extends State<WeatherPage> {
+class _WeatherPageState extends State<WeatherPage>
+    with SingleTickerProviderStateMixin {
   final TextEditingController _searchController = TextEditingController();
-  int _selectedTabIndex = 0;
+  late TabController _tabController;
   String? _locationSource;
 
   static const _tabLabels = ['Currently', 'Today', 'Weekly'];
 
   @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: _tabLabels.length, vsync: this);
+    _tabController.addListener(() {
+      setState(() {});
+    });
+  }
+
+  @override
   void dispose() {
     _searchController.dispose();
+    _tabController.dispose();
     super.dispose();
   }
 
@@ -57,40 +68,37 @@ class _WeatherPageState extends State<WeatherPage> {
   }
 
   String _tabDisplayText(int index) {
-    final tabName = _tabLabels[index];
     if (_locationSource == null) {
-      return tabName;
+      return "";
     }
     return ' $_locationSource';
   }
 
   void _onTabSelected(int index) {
-    setState(() {
-      _selectedTabIndex = index;
-    });
+    _tabController.animateTo(index);
   }
 
   Widget _buildTabContent(int index) {
     return Center(
-      child: 
-      Column(
+      child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Text(
-           _tabLabels[index],
+            _tabLabels[index],
             style: Theme.of(context).textTheme.headlineMedium,
           ),
-      
-      Text(
-        _tabDisplayText(index),
-        style: Theme.of(context).textTheme.headlineMedium,
-      ),]),);
-    
+          Text(
+            _tabDisplayText(index),
+            style: Theme.of(context).textTheme.headlineMedium,
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildBottomTab(int index, IconData icon, String label) {
-    final isSelected = _selectedTabIndex == index;
+    final isSelected = _tabController.index == index;
     final color = isSelected
         ? Theme.of(context).colorScheme.primary
         : Theme.of(context).colorScheme.onSurfaceVariant;
@@ -135,8 +143,8 @@ class _WeatherPageState extends State<WeatherPage> {
           ),
         ],
       ),
-      body: IndexedStack(
-        index: _selectedTabIndex,
+      body: TabBarView(
+        controller: _tabController,
         children: List.generate(
           _tabLabels.length,
           _buildTabContent,

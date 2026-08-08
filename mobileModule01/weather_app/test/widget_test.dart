@@ -58,4 +58,17 @@ void main() {
 
     expect(find.text('Weekly Geolocation'), findsOneWidget);
   });
+
+  testWidgets('Swiping switches between tabs', (WidgetTester tester) async {
+    await tester.pumpWidget(const WeatherApp());
+
+    expect(find.byType(TabBarView), findsOneWidget);
+
+    await tester.drag(find.byType(TabBarView), const Offset(-400, 0));
+    await tester.pumpAndSettle();
+
+    final tabController =
+        tester.widget<TabBarView>(find.byType(TabBarView)).controller!;
+    expect(tabController.index, 1);
+  });
 }
