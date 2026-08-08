@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 
+import 'location_service.dart';
+
 void main() {
   runApp(const WeatherApp());
 }
 
 class WeatherApp extends StatelessWidget {
-  const WeatherApp({super.key});
+  const WeatherApp({super.key, this.locationService});
+
+  final LocationService? locationService;
 
   @override
   Widget build(BuildContext context) {
@@ -15,13 +19,15 @@ class WeatherApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      home: const WeatherPage(),
+      home: WeatherPage(locationService: locationService),
     );
   }
 }
 
 class WeatherPage extends StatefulWidget {
-  const WeatherPage({super.key});
+  const WeatherPage({super.key, this.locationService});
+
+  final LocationService? locationService;
 
   @override
   State<WeatherPage> createState() => _WeatherPageState();
@@ -31,16 +37,23 @@ class _WeatherPageState extends State<WeatherPage>
     with SingleTickerProviderStateMixin {
   final TextEditingController _searchController = TextEditingController();
   late TabController _tabController;
+  late final LocationService _locationService;
   String? _locationSource;
+  bool _isFetchingLocation = false;
+  String? _locationAccessMessage;
 
   static const _tabLabels = ['Currently', 'Today', 'Weekly'];
 
   @override
   void initState() {
     super.initState();
+    _locationService = widget.locationService ?? createDefaultLocationService();
     _tabController = TabController(length: _tabLabels.length, vsync: this);
     _tabController.addListener(() {
       setState(() {});
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchCurrentLocation();
     });
   }
 
@@ -54,11 +67,58 @@ class _WeatherPageState extends State<WeatherPage>
   void _applyLocationSource(String source) {
     setState(() {
       _locationSource = source;
+      _locationAccessMessage = null;
+    });
+  }
+
+  Future<void> _fetchCurrentLocation() async {
+    if (_isFetchingLocation) {
+      return;
+    }
+
+    setState(() {
+      _isFetchingLocation = true;
+    });
+
+    final result = await _locationService.getCurrentLocation();
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isFetchingLocation = false;
+    });
+
+    if (result.isSuccess) {
+      final coordinates = result.coordinates!;
+      setState(() {
+        _locationSource = coordinates.displayLabel;
+        _locationAccessMessage = null;
+        _searchController.clear();
+      });
+      return;
+    }
+
+    _handleLocationFailure(result.failure!);
+  }
+
+  void _handleLocationFailure(LocationFailure failure) {
+    final message = switch (failure) {
+      LocationFailure.serviceDisabled =>
+        'Location services are disabled. Search for a city to get the weather.',
+      LocationFailure.permissionDenied ||
+      LocationFailure.permissionDeniedForever =>
+        'Location access denied. Search for a city to get the weather.',
+    };
+
+    setState(() {
+      _locationAccessMessage = message;
     });
   }
 
   void _onGeolocationPressed() {
-    _applyLocationSource('Geolocation');
+    _fetchCurrentLocation();
   }
 
   void _onSearchSubmitted(String value) {
@@ -152,7 +212,13 @@ class _WeatherPageState extends State<WeatherPage>
                   style: titleStyle,
                   maxWidth: maxTextWidth,
                 ),
-                if (location != null && location.isNotEmpty) ...[
+                if (_isFetchingLocation) ...[
+                  SizedBox(height: width >= 600 ? 16 : 12),
+                  SizedBox(
+                    width: maxTextWidth,
+                    child: const LinearProgressIndicator(),
+                  ),
+                ] else if (location != null && location.isNotEmpty) ...[
                   SizedBox(height: width >= 600 ? 16 : 12),
                   _buildLocationText(
                     text: location,
@@ -194,22 +260,44 @@ class _WeatherPageState extends State<WeatherPage>
         actions: [
           IconButton(
             icon: Icon(
-              Icons.my_location,
+              _isFetchingLocation ? Icons.location_searching : Icons.my_location,
               size: isWideScreen ? 28 : 24,
             ),
             tooltip: 'Use current location',
-            onPressed: _onGeolocationPressed,
+            onPressed: _isFetchingLocation ? null : _onGeolocationPressed,
           ),
           SizedBox(width: isWideScreen ? 8 : 0),
         ],
       ),
       body: SafeArea(
-        child: TabBarView(
-          controller: _tabController,
-          children: List.generate(
-            _tabLabels.length,
-            _buildTabContent,
-          ),
+        child: Column(
+          children: [
+            if (_locationAccessMessage != null)
+              MaterialBanner(
+                content: Text(_locationAccessMessage!),
+                leading: const Icon(Icons.location_off),
+                backgroundColor: Theme.of(context).colorScheme.errorContainer,
+                actions: [
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        _locationAccessMessage = null;
+                      });
+                    },
+                    child: const Text('Dismiss'),
+                  ),
+                ],
+              ),
+            Expanded(
+              child: TabBarView(
+                controller: _tabController,
+                children: List.generate(
+                  _tabLabels.length,
+                  _buildTabContent,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
       bottomNavigationBar: SafeArea(
