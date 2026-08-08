@@ -13,6 +13,7 @@ class WeatherApp extends StatelessWidget {
       title: 'Weather App',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        useMaterial3: true,
       ),
       home: const WeatherPage(),
     );
@@ -50,10 +51,14 @@ class _WeatherPageState extends State<WeatherPage>
     super.dispose();
   }
 
-  void _onGeolocationPressed() {
+  void _applyLocationSource(String source) {
     setState(() {
-      _locationSource = 'Geolocation';
+      _locationSource = source;
     });
+  }
+
+  void _onGeolocationPressed() {
+    _applyLocationSource('Geolocation');
   }
 
   void _onSearchSubmitted(String value) {
@@ -62,102 +67,182 @@ class _WeatherPageState extends State<WeatherPage>
       return;
     }
 
-    setState(() {
-      _locationSource = trimmedValue;
-    });
+    _applyLocationSource(trimmedValue);
   }
 
-  String _tabDisplayText(int index) {
-    if (_locationSource == null) {
-      return "";
+  double _contentFontSize(double width) {
+    if (width >= 900) {
+      return 40;
     }
-    return ' $_locationSource';
+    if (width >= 600) {
+      return 32;
+    }
+    return 24;
   }
 
-  void _onTabSelected(int index) {
-    _tabController.animateTo(index);
+  double _horizontalPadding(double width) {
+    if (width >= 900) {
+      return width * 0.2;
+    }
+    if (width >= 600) {
+      return width * 0.12;
+    }
+    return 16;
   }
 
-  Widget _buildTabContent(int index) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Text(
-            _tabLabels[index],
-            style: Theme.of(context).textTheme.headlineMedium,
-          ),
-          Text(
-            _tabDisplayText(index),
-            style: Theme.of(context).textTheme.headlineMedium,
-          ),
-        ],
+  Widget _buildTabTitleText({
+    required String text,
+    required TextStyle? style,
+    required double maxWidth,
+  }) {
+    return SizedBox(
+      width: maxWidth,
+      child: Text(
+        text,
+        textAlign: TextAlign.center,
+        style: style,
       ),
     );
   }
 
-  Widget _buildBottomTab(int index, IconData icon, String label) {
-    final isSelected = _tabController.index == index;
-    final color = isSelected
-        ? Theme.of(context).colorScheme.primary
-        : Theme.of(context).colorScheme.onSurfaceVariant;
-
-    return Expanded(
-      child: InkWell(
-        onTap: () => _onTabSelected(index),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: color, size: 20),
-            Text(
-              label,
-              style: TextStyle(color: color, fontSize: 10),
-            ),
-          ],
-        ),
+  Widget _buildLocationText({
+    required String text,
+    required TextStyle? style,
+    required double maxWidth,
+  }) {
+    return SizedBox(
+      width: maxWidth,
+      child: Text(
+        text,
+        textAlign: TextAlign.center,
+        softWrap: true,
+        maxLines: 4,
+        overflow: TextOverflow.ellipsis,
+        style: style,
       ),
+    );
+  }
+
+  Widget _buildTabContent(int index) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final horizontalPadding = _horizontalPadding(width);
+        final maxTextWidth = width - (horizontalPadding * 2);
+        final tabName = _tabLabels[index];
+        final location = _locationSource;
+        final titleStyle = Theme.of(context).textTheme.headlineMedium?.copyWith(
+              fontSize: _contentFontSize(width),
+              fontWeight: FontWeight.bold,
+            );
+        final subtitleStyle =
+            Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontSize: _contentFontSize(width) * 0.75,
+                );
+
+        return Center(
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildTabTitleText(
+                  text: tabName,
+                  style: titleStyle,
+                  maxWidth: maxTextWidth,
+                ),
+                if (location != null && location.isNotEmpty) ...[
+                  SizedBox(height: width >= 600 ? 16 : 12),
+                  _buildLocationText(
+                    text: location,
+                    style: subtitleStyle,
+                    maxWidth: maxTextWidth,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final isWideScreen = screenWidth >= 600;
+
     return Scaffold(
+      resizeToAvoidBottomInset: true,
       appBar: AppBar(
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        titleSpacing: isWideScreen ? 24 : 0,
         title: TextField(
           controller: _searchController,
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             hintText: 'Search city...',
             border: InputBorder.none,
-            prefixIcon: Icon(Icons.search),
+            prefixIcon: const Icon(Icons.search),
+            contentPadding: EdgeInsets.symmetric(
+              vertical: isWideScreen ? 16 : 12,
+            ),
           ),
           textInputAction: TextInputAction.search,
           onSubmitted: _onSearchSubmitted,
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.my_location),
+            icon: Icon(
+              Icons.my_location,
+              size: isWideScreen ? 28 : 24,
+            ),
             tooltip: 'Use current location',
             onPressed: _onGeolocationPressed,
           ),
+          SizedBox(width: isWideScreen ? 8 : 0),
         ],
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: List.generate(
-          _tabLabels.length,
-          _buildTabContent,
+      body: SafeArea(
+        child: TabBarView(
+          controller: _tabController,
+          children: List.generate(
+            _tabLabels.length,
+            _buildTabContent,
+          ),
         ),
       ),
-      bottomNavigationBar: BottomAppBar(
-        color: Theme.of(context).colorScheme.surface,
-        child: Row(
-          children: [
-            _buildBottomTab(0, Icons.wb_sunny, 'Currently'),
-            _buildBottomTab(1, Icons.today, 'Today'),
-            _buildBottomTab(2, Icons.calendar_view_week, 'Weekly'),
-          ],
+      bottomNavigationBar: SafeArea(
+        child: BottomAppBar(
+          height: isWideScreen ? 72 : 56,
+          color: Theme.of(context).colorScheme.surface,
+          padding: EdgeInsets.symmetric(
+            horizontal: isWideScreen ? 32 : 12,
+          ),
+          child: TabBar(
+            controller: _tabController,
+            tabAlignment: TabAlignment.fill,
+            labelStyle: TextStyle(
+              fontSize: isWideScreen ? 14 : 12,
+            ),
+            unselectedLabelStyle: TextStyle(
+              fontSize: isWideScreen ? 14 : 12,
+            ),
+            tabs: const [
+              Tab(
+                icon: Icon(Icons.wb_sunny),
+                text: 'Currently',
+              ),
+              Tab(
+                icon: Icon(Icons.today),
+                text: 'Today',
+              ),
+              Tab(
+                icon: Icon(Icons.calendar_view_week),
+                text: 'Weekly',
+              ),
+            ],
+          ),
         ),
       ),
     );
