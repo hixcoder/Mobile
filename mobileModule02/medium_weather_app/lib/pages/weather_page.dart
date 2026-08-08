@@ -2,9 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:weather_app/models/place.dart';
+import 'package:weather_app/models/weather_forecast.dart';
 import 'package:weather_app/services/geocoding_service.dart';
 import 'package:weather_app/services/location/location_service.dart';
 import 'package:weather_app/services/weather_service.dart';
+import 'package:weather_app/widgets/current_weather_view.dart';
+import 'package:weather_app/widgets/today_weather_view.dart';
+import 'package:weather_app/widgets/weekly_weather_view.dart';
 
 class WeatherPage extends StatefulWidget {
   const WeatherPage({
@@ -31,7 +35,8 @@ class _WeatherPageState extends State<WeatherPage>
   late final GeocodingService _geocodingService;
   late final WeatherService _weatherService;
 
-  String? _locationSource;
+  WeatherForecast? _weatherForecast;
+  String? _fallbackLocationLabel;
   List<Place> _suggestions = const [];
   bool _isFetchingLocation = false;
   bool _isSearching = false;
@@ -40,8 +45,6 @@ class _WeatherPageState extends State<WeatherPage>
   Timer? _searchDebounce;
   int _searchRequestId = 0;
 
-  static const _tabLabels = ['Currently', 'Today', 'Weekly'];
-
   @override
   void initState() {
     super.initState();
@@ -49,7 +52,7 @@ class _WeatherPageState extends State<WeatherPage>
     _geocodingService =
         widget.geocodingService ?? createDefaultGeocodingService();
     _weatherService = widget.weatherService ?? createDefaultWeatherService();
-    _tabController = TabController(length: _tabLabels.length, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(() {
       setState(() {});
     });
@@ -108,19 +111,20 @@ class _WeatherPageState extends State<WeatherPage>
 
   Future<void> _applyPlace(Place place) async {
     setState(() {
-      _locationSource = place.displayLabel;
+      _fallbackLocationLabel = null;
       _locationAccessMessage = null;
       _suggestions = const [];
       _isFetchingWeather = true;
     });
 
-    await _weatherService.fetchForecast(place);
+    final forecast = await _weatherService.fetchForecast(place);
 
     if (!mounted) {
       return;
     }
 
     setState(() {
+      _weatherForecast = forecast;
       _isFetchingWeather = false;
     });
   }
@@ -162,8 +166,8 @@ class _WeatherPageState extends State<WeatherPage>
       }
 
       setState(() {
-        _locationSource = coordinates.displayLabel;
-        _locationAccessMessage = null;
+        _weatherForecast = null;
+        _fallbackLocationLabel = coordinates.displayLabel;
         _searchController.clear();
         _suggestions = const [];
       });
@@ -225,7 +229,8 @@ class _WeatherPageState extends State<WeatherPage>
 
     if (results.isEmpty) {
       setState(() {
-        _locationSource = trimmedValue;
+        _weatherForecast = null;
+        _fallbackLocationLabel = trimmedValue;
       });
       return;
     }
@@ -241,59 +246,6 @@ class _WeatherPageState extends State<WeatherPage>
     });
     _searchFocusNode.unfocus();
     await _applyPlace(place);
-  }
-
-  double _contentFontSize(double width) {
-    if (width >= 900) {
-      return 40;
-    }
-    if (width >= 600) {
-      return 32;
-    }
-    return 24;
-  }
-
-  double _horizontalPadding(double width) {
-    if (width >= 900) {
-      return width * 0.2;
-    }
-    if (width >= 600) {
-      return width * 0.12;
-    }
-    return 16;
-  }
-
-  Widget _buildTabTitleText({
-    required String text,
-    required TextStyle? style,
-    required double maxWidth,
-  }) {
-    return SizedBox(
-      width: maxWidth,
-      child: Text(
-        text,
-        textAlign: TextAlign.center,
-        style: style,
-      ),
-    );
-  }
-
-  Widget _buildLocationText({
-    required String text,
-    required TextStyle? style,
-    required double maxWidth,
-  }) {
-    return SizedBox(
-      width: maxWidth,
-      child: Text(
-        text,
-        textAlign: TextAlign.center,
-        softWrap: true,
-        maxLines: 6,
-        overflow: TextOverflow.ellipsis,
-        style: style,
-      ),
-    );
   }
 
   Widget _buildSuggestionsList() {
@@ -328,54 +280,25 @@ class _WeatherPageState extends State<WeatherPage>
   }
 
   Widget _buildTabContent(int index) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final width = constraints.maxWidth;
-        final horizontalPadding = _horizontalPadding(width);
-        final maxTextWidth = width - (horizontalPadding * 2);
-        final tabName = _tabLabels[index];
-        final location = _locationSource;
-        final titleStyle = Theme.of(context).textTheme.headlineMedium?.copyWith(
-              fontSize: _contentFontSize(width),
-              fontWeight: FontWeight.bold,
-            );
-        final subtitleStyle =
-            Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontSize: _contentFontSize(width) * 0.75,
-                );
+    if (_isFetchingLocation || _isFetchingWeather) {
+      return const Center(child: CircularProgressIndicator());
+    }
 
-        return Center(
-          child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildTabTitleText(
-                  text: tabName,
-                  style: titleStyle,
-                  maxWidth: maxTextWidth,
-                ),
-                if (_isFetchingLocation || _isFetchingWeather) ...[
-                  SizedBox(height: width >= 600 ? 16 : 12),
-                  SizedBox(
-                    width: maxTextWidth,
-                    child: const LinearProgressIndicator(),
-                  ),
-                ] else if (location != null && location.isNotEmpty) ...[
-                  SizedBox(height: width >= 600 ? 16 : 12),
-                  _buildLocationText(
-                    text: location,
-                    style: subtitleStyle,
-                    maxWidth: maxTextWidth,
-                  ),
-                ],
-              ],
-            ),
-          ),
-        );
-      },
-    );
+    return switch (index) {
+      0 => CurrentWeatherView(
+          forecast: _weatherForecast,
+          fallbackLabel: _fallbackLocationLabel,
+        ),
+      1 => TodayWeatherView(
+          forecast: _weatherForecast,
+          fallbackLabel: _fallbackLocationLabel,
+        ),
+      2 => WeeklyWeatherView(
+          forecast: _weatherForecast,
+          fallbackLabel: _fallbackLocationLabel,
+        ),
+      _ => const SizedBox.shrink(),
+    };
   }
 
   @override
@@ -439,10 +362,7 @@ class _WeatherPageState extends State<WeatherPage>
             Expanded(
               child: TabBarView(
                 controller: _tabController,
-                children: List.generate(
-                  _tabLabels.length,
-                  _buildTabContent,
-                ),
+                children: List.generate(3, _buildTabContent),
               ),
             ),
           ],

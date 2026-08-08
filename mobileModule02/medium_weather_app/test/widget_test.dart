@@ -3,6 +3,9 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:weather_app/app/weather_app.dart';
+import 'package:weather_app/models/current_weather.dart';
+import 'package:weather_app/models/daily_weather.dart';
+import 'package:weather_app/models/hourly_weather.dart';
 import 'package:weather_app/models/place.dart';
 import 'package:weather_app/models/weather_forecast.dart';
 import 'package:weather_app/services/geocoding_service.dart';
@@ -69,12 +72,51 @@ class FakeGeocodingService implements GeocodingService {
 }
 
 class FakeWeatherService implements WeatherService {
+  FakeWeatherService({this.forecast});
+
   Place? lastFetchedPlace;
+  final WeatherForecast? forecast;
 
   @override
   Future<WeatherForecast?> fetchForecast(Place place) async {
     lastFetchedPlace = place;
-    return WeatherForecast(place: place);
+    return forecast ??
+        WeatherForecast(
+          place: place,
+          current: const CurrentWeather(
+            temperatureCelsius: 18.5,
+            description: 'Partly cloudy',
+            windSpeedKmh: 12.3,
+          ),
+          todayHourly: [
+            HourlyWeather(
+              time: DateTime(2026, 8, 8, 9),
+              temperatureCelsius: 17.0,
+              description: 'Clear sky',
+              windSpeedKmh: 10.0,
+            ),
+            HourlyWeather(
+              time: DateTime(2026, 8, 8, 12),
+              temperatureCelsius: 20.0,
+              description: 'Partly cloudy',
+              windSpeedKmh: 12.0,
+            ),
+          ],
+          weekly: [
+            DailyWeather(
+              date: DateTime(2026, 8, 8),
+              minTemperatureCelsius: 14.0,
+              maxTemperatureCelsius: 22.0,
+              description: 'Partly cloudy',
+            ),
+            DailyWeather(
+              date: DateTime(2026, 8, 9),
+              minTemperatureCelsius: 15.0,
+              maxTemperatureCelsius: 23.0,
+              description: 'Clear sky',
+            ),
+          ],
+        );
   }
 }
 
@@ -339,6 +381,78 @@ void main() {
     expect(renderParagraph.size.height, greaterThan(30));
   });
 
+  testWidgets('Currently tab shows temperature, description, and wind',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(_buildTestApp());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.enterText(find.byType(TextField), 'Paris');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await _pumpUntilFound(tester, find.text('18.5 °C'));
+
+    expect(find.text('Partly cloudy'), findsOneWidget);
+    expect(find.text('Wind: 12.3 km/h'), findsOneWidget);
+  });
+
+  testWidgets('Today tab shows hourly forecast entries',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(_buildTestApp());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.enterText(find.byType(TextField), 'Paris');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await _pumpUntilFound(tester, find.text('18.5 °C'));
+
+    await tester.tap(find.text('Today'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('09:00'), findsOneWidget);
+    expect(find.text('12:00'), findsOneWidget);
+    expect(find.text('17.0 °C'), findsOneWidget);
+    expect(find.text('20.0 °C'), findsOneWidget);
+    expect(find.text('Clear sky'), findsOneWidget);
+    expect(find.text('Wind: 10.0 km/h'), findsOneWidget);
+  });
+
+  testWidgets('Weekly tab shows daily min and max temperatures',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(_buildTestApp());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.enterText(find.byType(TextField), 'Paris');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await _pumpUntilFound(tester, find.text('18.5 °C'));
+
+    await tester.tap(find.text('Weekly'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('2026-08-08'), findsOneWidget);
+    expect(find.text('2026-08-09'), findsOneWidget);
+    expect(find.text('Min: 14.0 °C | Max: 22.0 °C'), findsOneWidget);
+    expect(find.text('Min: 15.0 °C | Max: 23.0 °C'), findsOneWidget);
+  });
+
+  testWidgets('Search keeps the active tab instead of resetting it',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(_buildTestApp());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.tap(find.text('Weekly'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), 'Paris');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await _pumpUntilFound(tester, find.text('2026-08-08'));
+
+    final tabController =
+        tester.widget<TabBarView>(find.byType(TabBarView)).controller!;
+    expect(tabController.index, 2);
+  });
+
   testWidgets('LayoutBuilder adapts tab content to screen width',
       (WidgetTester tester) async {
     await tester.binding.setSurfaceSize(const Size(900, 1200));
@@ -347,6 +461,10 @@ void main() {
     await tester.pumpWidget(_buildTestApp());
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.enterText(find.byType(TextField), 'Paris');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await _pumpUntilFound(tester, find.text('18.5 °C'));
 
     expect(find.byType(LayoutBuilder), findsWidgets);
   });
