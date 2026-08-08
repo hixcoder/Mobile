@@ -57,6 +57,29 @@ class _WeatherPageState extends State<WeatherPage> {
     );
   }
 
+  Widget _buildBottomTab(int index, IconData icon, String label) {
+    final isSelected = _selectedTabIndex == index;
+    final color = isSelected
+        ? Theme.of(context).colorScheme.primary
+        : Theme.of(context).colorScheme.onSurfaceVariant;
+
+    return Expanded(
+      child: InkWell(
+        onTap: () => _onTabSelected(index),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: color, size: 20),
+            Text(
+              label,
+              style: TextStyle(color: color, fontSize: 10),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -89,23 +112,15 @@ class _WeatherPageState extends State<WeatherPage> {
           _buildTabContent,
         ),
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedTabIndex,
-        onTap: _onTabSelected,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.wb_sunny),
-            label: 'Currently',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.today),
-            label: 'Today',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.calendar_view_week),
-            label: 'Weekly',
-          ),
-        ],
+      bottomNavigationBar: BottomAppBar(
+        color: Theme.of(context).colorScheme.surface,
+        child: Row(
+          children: [
+            _buildBottomTab(0, Icons.wb_sunny, 'Currently'),
+            _buildBottomTab(1, Icons.today, 'Today'),
+            _buildBottomTab(2, Icons.calendar_view_week, 'Weekly'),
+          ],
+        ),
       ),
     );
   }
