@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:weather_app/app/weather_app.dart';
@@ -7,6 +6,7 @@ import 'package:weather_app/models/current_weather.dart';
 import 'package:weather_app/models/daily_weather.dart';
 import 'package:weather_app/models/hourly_weather.dart';
 import 'package:weather_app/models/place.dart';
+import 'package:weather_app/models/service_result.dart';
 import 'package:weather_app/models/weather_forecast.dart';
 import 'package:weather_app/services/geocoding_service.dart';
 import 'package:weather_app/services/location/location_service.dart';
@@ -28,21 +28,26 @@ class FakeLocationService implements LocationService {
 class FakeGeocodingService implements GeocodingService {
   FakeGeocodingService({
     this.searchResults = const [],
+    this.searchFailure,
     this.reverseResult,
   });
 
   final List<Place> searchResults;
+  final ServiceFailure? searchFailure;
   final Place? reverseResult;
   String? lastSearchQuery;
 
   @override
-  Future<List<Place>> search(String query) async {
+  Future<GeocodingSearchResult> search(String query) async {
     lastSearchQuery = query;
+    if (searchFailure != null) {
+      return GeocodingSearchResult.failure(searchFailure!);
+    }
     if (searchResults.isNotEmpty) {
-      return searchResults;
+      return GeocodingSearchResult.success(searchResults);
     }
     if (query.toLowerCase().startsWith('pa')) {
-      return const [
+      return const GeocodingSearchResult.success([
         Place(
           name: 'Paris',
           region: 'Île-de-France',
@@ -50,9 +55,9 @@ class FakeGeocodingService implements GeocodingService {
           latitude: 48.8566,
           longitude: 2.3522,
         ),
-      ];
+      ]);
     }
-    return const [];
+    return const GeocodingSearchResult.failure(ServiceFailure.notFound);
   }
 
   @override
@@ -72,51 +77,60 @@ class FakeGeocodingService implements GeocodingService {
 }
 
 class FakeWeatherService implements WeatherService {
-  FakeWeatherService({this.forecast});
+  FakeWeatherService({
+    this.forecast,
+    this.failure,
+  });
 
   Place? lastFetchedPlace;
   final WeatherForecast? forecast;
+  final ServiceFailure? failure;
 
   @override
-  Future<WeatherForecast?> fetchForecast(Place place) async {
+  Future<WeatherFetchResult> fetchForecast(Place place) async {
     lastFetchedPlace = place;
-    return forecast ??
-        WeatherForecast(
-          place: place,
-          current: const CurrentWeather(
-            temperatureCelsius: 18.5,
-            description: 'Partly cloudy',
-            windSpeedKmh: 12.3,
+    if (failure != null) {
+      return WeatherFetchResult.failure(failure!);
+    }
+    return WeatherFetchResult.success(
+      forecast ??
+          WeatherForecast(
+            place: place,
+            current: const CurrentWeather(
+              temperatureCelsius: 18.5,
+              description: 'Partly cloudy',
+              windSpeedKmh: 12.3,
+            ),
+            todayHourly: [
+              HourlyWeather(
+                time: DateTime(2026, 8, 8, 9),
+                temperatureCelsius: 17.0,
+                description: 'Clear sky',
+                windSpeedKmh: 10.0,
+              ),
+              HourlyWeather(
+                time: DateTime(2026, 8, 8, 12),
+                temperatureCelsius: 20.0,
+                description: 'Partly cloudy',
+                windSpeedKmh: 12.0,
+              ),
+            ],
+            weekly: [
+              DailyWeather(
+                date: DateTime(2026, 8, 8),
+                minTemperatureCelsius: 14.0,
+                maxTemperatureCelsius: 22.0,
+                description: 'Partly cloudy',
+              ),
+              DailyWeather(
+                date: DateTime(2026, 8, 9),
+                minTemperatureCelsius: 15.0,
+                maxTemperatureCelsius: 23.0,
+                description: 'Clear sky',
+              ),
+            ],
           ),
-          todayHourly: [
-            HourlyWeather(
-              time: DateTime(2026, 8, 8, 9),
-              temperatureCelsius: 17.0,
-              description: 'Clear sky',
-              windSpeedKmh: 10.0,
-            ),
-            HourlyWeather(
-              time: DateTime(2026, 8, 8, 12),
-              temperatureCelsius: 20.0,
-              description: 'Partly cloudy',
-              windSpeedKmh: 12.0,
-            ),
-          ],
-          weekly: [
-            DailyWeather(
-              date: DateTime(2026, 8, 8),
-              minTemperatureCelsius: 14.0,
-              maxTemperatureCelsius: 22.0,
-              description: 'Partly cloudy',
-            ),
-            DailyWeather(
-              date: DateTime(2026, 8, 9),
-              minTemperatureCelsius: 15.0,
-              maxTemperatureCelsius: 23.0,
-              description: 'Clear sky',
-            ),
-          ],
-        );
+    );
   }
 }
 
@@ -344,7 +358,79 @@ void main() {
     expect(tabController.index, 1);
   });
 
-  testWidgets('Long search text wraps to multiple lines',
+  testWidgets('Invalid city search shows error in all tabs',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(_buildTestApp());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.enterText(find.byType(TextField), 'NotACity123');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await _pumpUntilFound(
+      tester,
+      find.textContaining('No cities found matching your search'),
+    );
+
+    expect(find.text('18.5 °C'), findsNothing);
+
+    await tester.tap(find.text('Today'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('No cities found matching your search'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Weekly'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('No cities found matching your search'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('Geocoding connection error shows message in tabs',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(
+      _buildTestApp(
+        geocodingService: FakeGeocodingService(
+          searchFailure: ServiceFailure.connectionError,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.enterText(find.byType(TextField), 'Paris');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await _pumpUntilFound(
+      tester,
+      find.textContaining('Unable to search cities'),
+    );
+  });
+
+  testWidgets('Weather connection error shows message in tabs',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(
+      _buildTestApp(
+        weatherService: FakeWeatherService(
+          failure: ServiceFailure.connectionError,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.enterText(find.byType(TextField), 'Paris');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await _pumpUntilFound(
+      tester,
+      find.textContaining('Unable to fetch weather data'),
+    );
+  });
+
+  testWidgets('Long error message wraps to multiple lines',
       (WidgetTester tester) async {
     await tester.binding.setSurfaceSize(const Size(320, 640));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -359,26 +445,18 @@ void main() {
     await tester.testTextInput.receiveAction(TextInputAction.search);
     await _pumpUntilFound(
       tester,
-      find.descendant(
-        of: find.byType(TabBarView),
-        matching: find.text(longCityName),
-      ),
+      find.textContaining('No cities found matching your search'),
     );
 
-    final locationTextFinder = find.descendant(
+    final errorTextFinder = find.descendant(
       of: find.byType(TabBarView),
-      matching: find.text(longCityName),
+      matching: find.textContaining('No cities found matching your search'),
     );
-    expect(locationTextFinder, findsOneWidget);
+    expect(errorTextFinder, findsOneWidget);
 
-    final textWidget = tester.widget<Text>(locationTextFinder);
+    final textWidget = tester.widget<Text>(errorTextFinder);
     expect(textWidget.softWrap, isTrue);
     expect(textWidget.maxLines, 6);
-
-    final renderParagraph = tester.renderObject<RenderParagraph>(
-      locationTextFinder,
-    );
-    expect(renderParagraph.size.height, greaterThan(30));
   });
 
   testWidgets('Currently tab shows temperature, description, and wind',

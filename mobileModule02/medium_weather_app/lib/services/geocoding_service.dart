@@ -3,9 +3,10 @@ import 'dart:math';
 
 import 'package:http/http.dart' as http;
 import 'package:weather_app/models/place.dart';
+import 'package:weather_app/models/service_result.dart';
 
 abstract interface class GeocodingService {
-  Future<List<Place>> search(String query);
+  Future<GeocodingSearchResult> search(String query);
 
   Future<Place?> reverseGeocode({
     required double latitude,
@@ -21,10 +22,10 @@ class OpenMeteoGeocodingService implements GeocodingService {
   static const _forecastBaseUrl = 'https://api.open-meteo.com/v1/forecast';
 
   @override
-  Future<List<Place>> search(String query) async {
+  Future<GeocodingSearchResult> search(String query) async {
     final trimmedQuery = query.trim();
     if (trimmedQuery.length < 2) {
-      return const [];
+      return const GeocodingSearchResult.success([]);
     }
 
     final uri = Uri.parse(_searchBaseUrl).replace(
@@ -36,22 +37,36 @@ class OpenMeteoGeocodingService implements GeocodingService {
       },
     );
 
-    final response = await _client.get(uri);
-    if (response.statusCode != 200) {
-      return const [];
-    }
+    try {
+      final response = await _client.get(uri);
+      if (response.statusCode != 200) {
+        return const GeocodingSearchResult.failure(
+          ServiceFailure.connectionError,
+        );
+      }
 
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
-    final results = data['results'];
-    if (results is! List) {
-      return const [];
-    }
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final results = data['results'];
+      if (results is! List || results.isEmpty) {
+        return const GeocodingSearchResult.failure(ServiceFailure.notFound);
+      }
 
-    return results
-        .whereType<Map<String, dynamic>>()
-        .map(Place.fromJson)
-        .where((place) => place.name.isNotEmpty)
-        .toList();
+      final places = results
+          .whereType<Map<String, dynamic>>()
+          .map(Place.fromJson)
+          .where((place) => place.name.isNotEmpty)
+          .toList();
+
+      if (places.isEmpty) {
+        return const GeocodingSearchResult.failure(ServiceFailure.notFound);
+      }
+
+      return GeocodingSearchResult.success(places);
+    } catch (_) {
+      return const GeocodingSearchResult.failure(
+        ServiceFailure.connectionError,
+      );
+    }
   }
 
   @override
@@ -65,11 +80,12 @@ class OpenMeteoGeocodingService implements GeocodingService {
     }
 
     final cityHint = timezone.split('/').last.replaceAll('_', ' ');
-    final candidates = await search(cityHint);
-    if (candidates.isEmpty) {
+    final searchResult = await search(cityHint);
+    if (!searchResult.isSuccess || searchResult.places!.isEmpty) {
       return null;
     }
 
+    final candidates = searchResult.places!;
     return candidates.reduce(
       (closest, candidate) =>
           _distance(latitude, longitude, candidate.latitude, candidate.longitude) <
@@ -95,13 +111,17 @@ class OpenMeteoGeocodingService implements GeocodingService {
       },
     );
 
-    final response = await _client.get(uri);
-    if (response.statusCode != 200) {
+    try {
+      final response = await _client.get(uri);
+      if (response.statusCode != 200) {
+        return null;
+      }
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      return data['timezone'] as String?;
+    } catch (_) {
       return null;
     }
-
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
-    return data['timezone'] as String?;
   }
 
   double _distance(double lat1, double lon1, double lat2, double lon2) {

@@ -5,11 +5,12 @@ import 'package:weather_app/models/current_weather.dart';
 import 'package:weather_app/models/daily_weather.dart';
 import 'package:weather_app/models/hourly_weather.dart';
 import 'package:weather_app/models/place.dart';
+import 'package:weather_app/models/service_result.dart';
 import 'package:weather_app/models/weather_forecast.dart';
 import 'package:weather_app/utils/weather_code.dart';
 
 abstract interface class WeatherService {
-  Future<WeatherForecast?> fetchForecast(Place place);
+  Future<WeatherFetchResult> fetchForecast(Place place);
 }
 
 class OpenMeteoWeatherService implements WeatherService {
@@ -19,7 +20,7 @@ class OpenMeteoWeatherService implements WeatherService {
   static const _baseUrl = 'https://api.open-meteo.com/v1/forecast';
 
   @override
-  Future<WeatherForecast?> fetchForecast(Place place) async {
+  Future<WeatherFetchResult> fetchForecast(Place place) async {
     final uri = Uri.parse(_baseUrl).replace(
       queryParameters: {
         'latitude': place.latitude.toString(),
@@ -34,17 +35,25 @@ class OpenMeteoWeatherService implements WeatherService {
       },
     );
 
-    final response = await _client.get(uri);
-    if (response.statusCode != 200) {
-      return null;
-    }
+    try {
+      final response = await _client.get(uri);
+      if (response.statusCode != 200) {
+        return const WeatherFetchResult.failure(
+          ServiceFailure.connectionError,
+        );
+      }
 
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
-    if (data['error'] == true) {
-      return null;
-    }
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (data['error'] == true) {
+        return const WeatherFetchResult.failure(ServiceFailure.notFound);
+      }
 
-    return _parseForecast(place, data);
+      return WeatherFetchResult.success(_parseForecast(place, data));
+    } catch (_) {
+      return const WeatherFetchResult.failure(
+        ServiceFailure.connectionError,
+      );
+    }
   }
 
   WeatherForecast _parseForecast(Place place, Map<String, dynamic> data) {

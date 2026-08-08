@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:weather_app/models/place.dart';
+import 'package:weather_app/models/service_result.dart';
 import 'package:weather_app/models/weather_forecast.dart';
 import 'package:weather_app/services/geocoding_service.dart';
 import 'package:weather_app/services/location/location_service.dart';
@@ -9,6 +10,7 @@ import 'package:weather_app/services/weather_service.dart';
 import 'package:weather_app/widgets/current_weather_view.dart';
 import 'package:weather_app/widgets/today_weather_view.dart';
 import 'package:weather_app/widgets/weekly_weather_view.dart';
+import 'package:weather_app/widgets/weather_message_view.dart';
 
 class WeatherPage extends StatefulWidget {
   const WeatherPage({
@@ -37,6 +39,7 @@ class _WeatherPageState extends State<WeatherPage>
 
   WeatherForecast? _weatherForecast;
   String? _fallbackLocationLabel;
+  String? _contentMessage;
   List<Place> _suggestions = const [];
   bool _isFetchingLocation = false;
   bool _isSearching = false;
@@ -73,10 +76,33 @@ class _WeatherPageState extends State<WeatherPage>
 
   void _onSearchTextChanged() {
     final query = _searchController.text;
+    if (query.trim().length >= 2) {
+      setState(() {
+        _contentMessage = null;
+      });
+    }
     _searchDebounce?.cancel();
     _searchDebounce = Timer(const Duration(milliseconds: 300), () {
       _updateSuggestions(query);
     });
+  }
+
+  String _geocodingFailureMessage(ServiceFailure failure) {
+    return switch (failure) {
+      ServiceFailure.notFound =>
+        'No cities found matching your search. Please try a different search term.',
+      ServiceFailure.connectionError =>
+        'Unable to search cities. Please check your internet connection and try again.',
+    };
+  }
+
+  String _weatherFailureMessage(ServiceFailure failure) {
+    return switch (failure) {
+      ServiceFailure.notFound =>
+        'No weather data available for this location. Please try a different location.',
+      ServiceFailure.connectionError =>
+        'Unable to fetch weather data. Please check your internet connection and try again.',
+    };
   }
 
   Future<void> _updateSuggestions(String query) async {
@@ -97,15 +123,25 @@ class _WeatherPageState extends State<WeatherPage>
       _isSearching = true;
     });
 
-    final results = await _geocodingService.search(trimmedQuery);
+    final result = await _geocodingService.search(trimmedQuery);
 
     if (!mounted || requestId != _searchRequestId) {
       return;
     }
 
+    if (!result.isSuccess) {
+      setState(() {
+        _suggestions = const [];
+        _isSearching = false;
+        _contentMessage = _geocodingFailureMessage(result.failure!);
+      });
+      return;
+    }
+
     setState(() {
-      _suggestions = results;
+      _suggestions = result.places!;
       _isSearching = false;
+      _contentMessage = null;
     });
   }
 
@@ -113,18 +149,28 @@ class _WeatherPageState extends State<WeatherPage>
     setState(() {
       _fallbackLocationLabel = null;
       _locationAccessMessage = null;
+      _contentMessage = null;
       _suggestions = const [];
       _isFetchingWeather = true;
     });
 
-    final forecast = await _weatherService.fetchForecast(place);
+    final result = await _weatherService.fetchForecast(place);
 
     if (!mounted) {
       return;
     }
 
+    if (!result.isSuccess) {
+      setState(() {
+        _weatherForecast = null;
+        _contentMessage = _weatherFailureMessage(result.failure!);
+        _isFetchingWeather = false;
+      });
+      return;
+    }
+
     setState(() {
-      _weatherForecast = forecast;
+      _weatherForecast = result.forecast;
       _isFetchingWeather = false;
     });
   }
@@ -167,6 +213,7 @@ class _WeatherPageState extends State<WeatherPage>
 
       setState(() {
         _weatherForecast = null;
+        _contentMessage = null;
         _fallbackLocationLabel = coordinates.displayLabel;
         _searchController.clear();
         _suggestions = const [];
@@ -217,7 +264,7 @@ class _WeatherPageState extends State<WeatherPage>
       _isSearching = true;
     });
 
-    final results = await _geocodingService.search(trimmedValue);
+    final result = await _geocodingService.search(trimmedValue);
 
     if (!mounted) {
       return;
@@ -227,16 +274,24 @@ class _WeatherPageState extends State<WeatherPage>
       _isSearching = false;
     });
 
-    if (results.isEmpty) {
+    if (!result.isSuccess) {
       setState(() {
         _weatherForecast = null;
-        _fallbackLocationLabel = trimmedValue;
+        _contentMessage = _geocodingFailureMessage(result.failure!);
       });
       return;
     }
 
-    _searchController.text = results.first.name;
-    await _applyPlace(results.first);
+    if (result.places!.isEmpty) {
+      setState(() {
+        _weatherForecast = null;
+        _contentMessage = _geocodingFailureMessage(ServiceFailure.notFound);
+      });
+      return;
+    }
+
+    _searchController.text = result.places!.first.name;
+    await _applyPlace(result.places!.first);
   }
 
   Future<void> _onSuggestionSelected(Place place) async {
@@ -282,6 +337,10 @@ class _WeatherPageState extends State<WeatherPage>
   Widget _buildTabContent(int index) {
     if (_isFetchingLocation || _isFetchingWeather) {
       return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_contentMessage != null) {
+      return WeatherMessageView(message: _contentMessage!);
     }
 
     return switch (index) {
