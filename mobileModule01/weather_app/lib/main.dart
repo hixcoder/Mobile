@@ -29,6 +29,7 @@ class WeatherPage extends StatefulWidget {
 class _WeatherPageState extends State<WeatherPage> {
   final TextEditingController _searchController = TextEditingController();
   int _selectedTabIndex = 0;
+  String? _locationSource;
 
   static const _tabLabels = ['Currently', 'Today', 'Weekly'];
 
@@ -39,7 +40,28 @@ class _WeatherPageState extends State<WeatherPage> {
   }
 
   void _onGeolocationPressed() {
-    // TODO: fetch weather for current location
+    setState(() {
+      _locationSource = 'Geolocation';
+    });
+  }
+
+  void _onSearchSubmitted(String value) {
+    final trimmedValue = value.trim();
+    if (trimmedValue.isEmpty) {
+      return;
+    }
+
+    setState(() {
+      _locationSource = trimmedValue;
+    });
+  }
+
+  String _tabDisplayText(int index) {
+    final tabName = _tabLabels[index];
+    if (_locationSource == null) {
+      return tabName;
+    }
+    return ' $_locationSource';
   }
 
   void _onTabSelected(int index) {
@@ -50,11 +72,21 @@ class _WeatherPageState extends State<WeatherPage> {
 
   Widget _buildTabContent(int index) {
     return Center(
-      child: Text(
-        _tabLabels[index],
+      child: 
+      Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Text(
+           _tabLabels[index],
+            style: Theme.of(context).textTheme.headlineMedium,
+          ),
+      
+      Text(
+        _tabDisplayText(index),
         style: Theme.of(context).textTheme.headlineMedium,
-      ),
-    );
+      ),]),);
+    
   }
 
   Widget _buildBottomTab(int index, IconData icon, String label) {
@@ -93,9 +125,7 @@ class _WeatherPageState extends State<WeatherPage> {
             prefixIcon: Icon(Icons.search),
           ),
           textInputAction: TextInputAction.search,
-          onSubmitted: (_) {
-            // TODO: fetch weather for searched city
-          },
+          onSubmitted: _onSearchSubmitted,
         ),
         actions: [
           IconButton(
