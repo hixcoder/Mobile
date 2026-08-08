@@ -18,12 +18,27 @@ class LocationHeader extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
-    return Text(
-      label,
-      textAlign: TextAlign.center,
-      softWrap: true,
-      maxLines: 6,
-      style: Theme.of(context).textTheme.titleLarge,
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Column(
+      children: [
+        Icon(
+          Icons.location_on_outlined,
+          color: colorScheme.primary,
+          size: 28,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          label,
+          textAlign: TextAlign.center,
+          softWrap: true,
+          maxLines: 6,
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+                height: 1.3,
+              ),
+        ),
+      ],
     );
   }
 }

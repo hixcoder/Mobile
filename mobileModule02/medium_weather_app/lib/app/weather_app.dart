@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:weather_app/app/app_theme.dart';
 import 'package:weather_app/pages/weather_page.dart';
 import 'package:weather_app/services/geocoding_service.dart';
 import 'package:weather_app/services/location/location_service.dart';
@@ -20,10 +21,8 @@ class WeatherApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Weather App',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-        useMaterial3: true,
-      ),
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.light(),
       home: WeatherPage(
         locationService: locationService,
         geocodingService: geocodingService,

@@ -76,6 +76,41 @@ class FakeGeocodingService implements GeocodingService {
   }
 }
 
+class _RecoveringGeocodingService implements GeocodingService {
+  bool connectionRestored = false;
+
+  @override
+  Future<GeocodingSearchResult> search(String query) async {
+    if (!connectionRestored) {
+      return const GeocodingSearchResult.failure(
+        ServiceFailure.connectionError,
+      );
+    }
+
+    if (query.toLowerCase().startsWith('pa')) {
+      return const GeocodingSearchResult.success([
+        Place(
+          name: 'Paris',
+          region: 'Île-de-France',
+          country: 'France',
+          latitude: 48.8566,
+          longitude: 2.3522,
+        ),
+      ]);
+    }
+
+    return const GeocodingSearchResult.failure(ServiceFailure.notFound);
+  }
+
+  @override
+  Future<Place?> reverseGeocode({
+    required double latitude,
+    required double longitude,
+  }) async {
+    return null;
+  }
+}
+
 class FakeWeatherService implements WeatherService {
   FakeWeatherService({
     this.forecast,
@@ -356,6 +391,53 @@ void main() {
     final tabController =
         tester.widget<TabBarView>(find.byType(TabBarView)).controller!;
     expect(tabController.index, 1);
+  });
+
+  testWidgets('Invalid city error persists while typing without a valid search',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(_buildTestApp());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.enterText(find.byType(TextField), 'NotACity123');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await _pumpUntilFound(
+      tester,
+      find.textContaining('No cities found matching your search'),
+    );
+
+    await tester.enterText(find.byType(TextField), 'Pa');
+    await tester.pump(const Duration(milliseconds: 350));
+    await _pumpUntilFound(tester, find.text('Paris'));
+
+    expect(
+      find.textContaining('No cities found matching your search'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('Geocoding connection error clears after a successful search',
+      (WidgetTester tester) async {
+    final geocodingService = _RecoveringGeocodingService();
+    await tester.pumpWidget(
+      _buildTestApp(geocodingService: geocodingService),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.enterText(find.byType(TextField), 'Paris');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await _pumpUntilFound(
+      tester,
+      find.textContaining('Unable to search cities'),
+    );
+
+    geocodingService.connectionRestored = true;
+    await tester.enterText(find.byType(TextField), 'Pa');
+    await tester.pump(const Duration(milliseconds: 350));
+    await _pumpUntilFound(tester, find.text('Paris'));
+
+    expect(find.textContaining('Unable to search cities'), findsNothing);
   });
 
   testWidgets('Invalid city search shows error in all tabs',

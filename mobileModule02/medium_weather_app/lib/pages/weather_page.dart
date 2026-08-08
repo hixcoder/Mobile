@@ -12,6 +12,8 @@ import 'package:weather_app/widgets/today_weather_view.dart';
 import 'package:weather_app/widgets/weekly_weather_view.dart';
 import 'package:weather_app/widgets/weather_message_view.dart';
 
+enum _ContentMessageSource { geocoding, weather }
+
 class WeatherPage extends StatefulWidget {
   const WeatherPage({
     super.key,
@@ -40,6 +42,8 @@ class _WeatherPageState extends State<WeatherPage>
   WeatherForecast? _weatherForecast;
   String? _fallbackLocationLabel;
   String? _contentMessage;
+  ServiceFailure? _contentMessageFailure;
+  _ContentMessageSource? _contentMessageSource;
   List<Place> _suggestions = const [];
   bool _isFetchingLocation = false;
   bool _isSearching = false;
@@ -76,15 +80,33 @@ class _WeatherPageState extends State<WeatherPage>
 
   void _onSearchTextChanged() {
     final query = _searchController.text;
-    if (query.trim().length >= 2) {
-      setState(() {
-        _contentMessage = null;
-      });
-    }
     _searchDebounce?.cancel();
     _searchDebounce = Timer(const Duration(milliseconds: 300), () {
       _updateSuggestions(query);
     });
+  }
+
+  void _setContentMessage({
+    required String message,
+    required ServiceFailure failure,
+    required _ContentMessageSource source,
+  }) {
+    _contentMessage = message;
+    _contentMessageFailure = failure;
+    _contentMessageSource = source;
+  }
+
+  void _clearContentMessage() {
+    _contentMessage = null;
+    _contentMessageFailure = null;
+    _contentMessageSource = null;
+  }
+
+  void _clearContentMessageIfGeocodingConnectionRestored() {
+    if (_contentMessageSource == _ContentMessageSource.geocoding &&
+        _contentMessageFailure == ServiceFailure.connectionError) {
+      _clearContentMessage();
+    }
   }
 
   String _geocodingFailureMessage(ServiceFailure failure) {
@@ -133,7 +155,11 @@ class _WeatherPageState extends State<WeatherPage>
       setState(() {
         _suggestions = const [];
         _isSearching = false;
-        _contentMessage = _geocodingFailureMessage(result.failure!);
+        _setContentMessage(
+          message: _geocodingFailureMessage(result.failure!),
+          failure: result.failure!,
+          source: _ContentMessageSource.geocoding,
+        );
       });
       return;
     }
@@ -141,7 +167,7 @@ class _WeatherPageState extends State<WeatherPage>
     setState(() {
       _suggestions = result.places!;
       _isSearching = false;
-      _contentMessage = null;
+      _clearContentMessageIfGeocodingConnectionRestored();
     });
   }
 
@@ -149,7 +175,7 @@ class _WeatherPageState extends State<WeatherPage>
     setState(() {
       _fallbackLocationLabel = null;
       _locationAccessMessage = null;
-      _contentMessage = null;
+      _clearContentMessage();
       _suggestions = const [];
       _isFetchingWeather = true;
     });
@@ -163,7 +189,11 @@ class _WeatherPageState extends State<WeatherPage>
     if (!result.isSuccess) {
       setState(() {
         _weatherForecast = null;
-        _contentMessage = _weatherFailureMessage(result.failure!);
+        _setContentMessage(
+          message: _weatherFailureMessage(result.failure!),
+          failure: result.failure!,
+          source: _ContentMessageSource.weather,
+        );
         _isFetchingWeather = false;
       });
       return;
@@ -211,13 +241,13 @@ class _WeatherPageState extends State<WeatherPage>
         return;
       }
 
-      setState(() {
-        _weatherForecast = null;
-        _contentMessage = null;
-        _fallbackLocationLabel = coordinates.displayLabel;
-        _searchController.clear();
-        _suggestions = const [];
-      });
+      final coordinatePlace = Place(
+        name: coordinates.displayLabel,
+        latitude: coordinates.latitude,
+        longitude: coordinates.longitude,
+      );
+      _searchController.text = coordinatePlace.name;
+      await _applyPlace(coordinatePlace);
       return;
     }
 
@@ -277,7 +307,11 @@ class _WeatherPageState extends State<WeatherPage>
     if (!result.isSuccess) {
       setState(() {
         _weatherForecast = null;
-        _contentMessage = _geocodingFailureMessage(result.failure!);
+        _setContentMessage(
+          message: _geocodingFailureMessage(result.failure!),
+          failure: result.failure!,
+          source: _ContentMessageSource.geocoding,
+        );
       });
       return;
     }
@@ -285,7 +319,11 @@ class _WeatherPageState extends State<WeatherPage>
     if (result.places!.isEmpty) {
       setState(() {
         _weatherForecast = null;
-        _contentMessage = _geocodingFailureMessage(ServiceFailure.notFound);
+        _setContentMessage(
+          message: _geocodingFailureMessage(ServiceFailure.notFound),
+          failure: ServiceFailure.notFound,
+          source: _ContentMessageSource.geocoding,
+        );
       });
       return;
     }
@@ -308,35 +346,82 @@ class _WeatherPageState extends State<WeatherPage>
       return const SizedBox.shrink();
     }
 
-    return Material(
-      elevation: 4,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxHeight: 240),
-        child: _isSearching && _suggestions.isEmpty
-            ? const Padding(
-                padding: EdgeInsets.all(16),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            : ListView.separated(
-                shrinkWrap: true,
-                itemCount: _suggestions.length,
-                separatorBuilder: (_, _) => const Divider(height: 1),
-                itemBuilder: (context, index) {
-                  final place = _suggestions[index];
-                  return ListTile(
-                    title: Text(place.name),
-                    subtitle: Text(place.suggestionSubtitle),
-                    onTap: () => _onSuggestionSelected(place),
-                  );
-                },
-              ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      child: Material(
+        elevation: 6,
+        shadowColor: Colors.black26,
+        borderRadius: BorderRadius.circular(16),
+        clipBehavior: Clip.antiAlias,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 240),
+          child: _isSearching && _suggestions.isEmpty
+              ? const Padding(
+                  padding: EdgeInsets.all(20),
+                  child: Center(
+                    child: SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2.5),
+                    ),
+                  ),
+                )
+              : ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: _suggestions.length,
+                  separatorBuilder: (_, _) => Divider(
+                    height: 1,
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
+                  itemBuilder: (context, index) {
+                    final place = _suggestions[index];
+                    return ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor:
+                            Theme.of(context).colorScheme.primaryContainer,
+                        child: Icon(
+                          Icons.location_city_outlined,
+                          color: Theme.of(context).colorScheme.primary,
+                          size: 20,
+                        ),
+                      ),
+                      title: Text(
+                        place.name,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: Text(place.suggestionSubtitle),
+                      onTap: () => _onSuggestionSelected(place),
+                    );
+                  },
+                ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLoadingView() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const CircularProgressIndicator(),
+          const SizedBox(height: 16),
+          Text(
+            _isFetchingLocation
+                ? 'Getting your location...'
+                : 'Loading weather data...',
+            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildTabContent(int index) {
     if (_isFetchingLocation || _isFetchingWeather) {
-      return const Center(child: CircularProgressIndicator());
+      return _buildLoadingView();
     }
 
     if (_contentMessage != null) {
@@ -370,75 +455,90 @@ class _WeatherPageState extends State<WeatherPage>
     return Scaffold(
       resizeToAvoidBottomInset: true,
       appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        titleSpacing: isWideScreen ? 24 : 0,
+        titleSpacing: isWideScreen ? 24 : 12,
         title: TextField(
           controller: _searchController,
           focusNode: _searchFocusNode,
           decoration: InputDecoration(
             hintText: 'Search city...',
-            border: InputBorder.none,
             prefixIcon: const Icon(Icons.search),
             contentPadding: EdgeInsets.symmetric(
-              vertical: isWideScreen ? 16 : 12,
+              vertical: isWideScreen ? 14 : 10,
             ),
           ),
           textInputAction: TextInputAction.search,
           onSubmitted: _onSearchSubmitted,
         ),
         actions: [
-          IconButton(
-            icon: Icon(
-              _isFetchingLocation ? Icons.location_searching : Icons.my_location,
-              size: isWideScreen ? 28 : 24,
+          Padding(
+            padding: EdgeInsets.only(right: isWideScreen ? 12 : 4),
+            child: IconButton.filledTonal(
+              icon: Icon(
+                _isFetchingLocation
+                    ? Icons.location_searching
+                    : Icons.my_location,
+                size: isWideScreen ? 26 : 22,
+              ),
+              tooltip: 'Use current location',
+              onPressed: _isFetchingLocation ? null : _onGeolocationPressed,
             ),
-            tooltip: 'Use current location',
-            onPressed: _isFetchingLocation ? null : _onGeolocationPressed,
           ),
-          SizedBox(width: isWideScreen ? 8 : 0),
         ],
       ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            if (_locationAccessMessage != null)
-              MaterialBanner(
-                content: Text(_locationAccessMessage!),
-                leading: const Icon(Icons.location_off),
-                backgroundColor: Theme.of(context).colorScheme.errorContainer,
-                actions: [
-                  TextButton(
-                    onPressed: () {
-                      setState(() {
-                        _locationAccessMessage = null;
-                      });
-                    },
-                    child: const Text('Dismiss'),
-                  ),
-                ],
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Theme.of(context).colorScheme.surface.withValues(alpha: 0.3),
+              Theme.of(context).scaffoldBackgroundColor,
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              if (_locationAccessMessage != null)
+                MaterialBanner(
+                  content: Text(_locationAccessMessage!),
+                  leading: const Icon(Icons.location_off),
+                  backgroundColor:
+                      Theme.of(context).colorScheme.errorContainer,
+                  actions: [
+                    TextButton(
+                      onPressed: () {
+                        setState(() {
+                          _locationAccessMessage = null;
+                        });
+                      },
+                      child: const Text('Dismiss'),
+                    ),
+                  ],
+                ),
+              if (showSuggestions) _buildSuggestionsList(),
+              Expanded(
+                child: TabBarView(
+                  controller: _tabController,
+                  children: List.generate(3, _buildTabContent),
+                ),
               ),
-            if (showSuggestions) _buildSuggestionsList(),
-            Expanded(
-              child: TabBarView(
-                controller: _tabController,
-                children: List.generate(3, _buildTabContent),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
       bottomNavigationBar: SafeArea(
         child: BottomAppBar(
-          height: isWideScreen ? 72 : 56,
-          color: Theme.of(context).colorScheme.surface,
+          height: isWideScreen ? 72 : 60,
           padding: EdgeInsets.symmetric(
-            horizontal: isWideScreen ? 32 : 12,
+            horizontal: isWideScreen ? 32 : 8,
           ),
           child: TabBar(
             controller: _tabController,
             tabAlignment: TabAlignment.fill,
             labelStyle: TextStyle(
               fontSize: isWideScreen ? 14 : 12,
+              fontWeight: FontWeight.w600,
             ),
             unselectedLabelStyle: TextStyle(
               fontSize: isWideScreen ? 14 : 12,
