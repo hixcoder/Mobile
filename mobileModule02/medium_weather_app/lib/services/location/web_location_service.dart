@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:js_interop';
 
-import 'location_service.dart';
+import 'package:weather_app/services/location/location_service.dart';
 
 @JS('navigator.geolocation')
 external Geolocation? get _geolocation;

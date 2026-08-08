@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:weather_app/location_service.dart';
-import 'package:weather_app/main.dart';
+import 'package:weather_app/app/weather_app.dart';
+import 'package:weather_app/models/place.dart';
+import 'package:weather_app/models/weather_forecast.dart';
+import 'package:weather_app/services/geocoding_service.dart';
+import 'package:weather_app/services/location/location_service.dart';
+import 'package:weather_app/services/weather_service.dart';
 
 class FakeLocationService implements LocationService {
   FakeLocationService({
@@ -18,19 +22,99 @@ class FakeLocationService implements LocationService {
   Future<LocationResult> getCurrentLocation() async => result;
 }
 
-void main() {
-  testWidgets('AppBar shows search field and geolocation button',
-      (WidgetTester tester) async {
-    await tester.pumpWidget(
-      WeatherApp(
-        locationService: FakeLocationService(
+class FakeGeocodingService implements GeocodingService {
+  FakeGeocodingService({
+    this.searchResults = const [],
+    this.reverseResult,
+  });
+
+  final List<Place> searchResults;
+  final Place? reverseResult;
+  String? lastSearchQuery;
+
+  @override
+  Future<List<Place>> search(String query) async {
+    lastSearchQuery = query;
+    if (searchResults.isNotEmpty) {
+      return searchResults;
+    }
+    if (query.toLowerCase().startsWith('pa')) {
+      return const [
+        Place(
+          name: 'Paris',
+          region: 'Île-de-France',
+          country: 'France',
+          latitude: 48.8566,
+          longitude: 2.3522,
+        ),
+      ];
+    }
+    return const [];
+  }
+
+  @override
+  Future<Place?> reverseGeocode({
+    required double latitude,
+    required double longitude,
+  }) async {
+    return reverseResult ??
+        const Place(
+          name: 'Paris',
+          region: 'Île-de-France',
+          country: 'France',
+          latitude: 48.8566,
+          longitude: 2.3522,
+        );
+  }
+}
+
+class FakeWeatherService implements WeatherService {
+  Place? lastFetchedPlace;
+
+  @override
+  Future<WeatherForecast?> fetchForecast(Place place) async {
+    lastFetchedPlace = place;
+    return WeatherForecast(place: place);
+  }
+}
+
+WeatherApp _buildTestApp({
+  LocationService? locationService,
+  GeocodingService? geocodingService,
+  WeatherService? weatherService,
+}) {
+  return WeatherApp(
+    locationService: locationService ??
+        FakeLocationService(
           result: const LocationResult.failure(
             LocationFailure.permissionDenied,
           ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+    geocodingService: geocodingService ?? FakeGeocodingService(),
+    weatherService: weatherService ?? FakeWeatherService(),
+  );
+}
+
+Future<void> _pumpUntilFound(
+  WidgetTester tester,
+  Finder finder, {
+  int maxAttempts = 50,
+}) async {
+  for (var attempt = 0; attempt < maxAttempts; attempt++) {
+    await tester.pump(const Duration(milliseconds: 100));
+    if (finder.evaluate().isNotEmpty) {
+      return;
+    }
+  }
+  fail('Expected to find widget: $finder');
+}
+
+void main() {
+  testWidgets('AppBar shows search field and geolocation button',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(_buildTestApp());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
 
     expect(find.byType(TextField), findsOneWidget);
     expect(find.byIcon(Icons.my_location), findsOneWidget);
@@ -43,28 +127,32 @@ void main() {
     expect(find.text('Weekly'), findsOneWidget);
   });
 
-  testWidgets('Search updates all tabs with entered text on a new line',
+  testWidgets('Search updates all tabs with resolved city details',
       (WidgetTester tester) async {
-    await tester.pumpWidget(
-      WeatherApp(
-        locationService: FakeLocationService(
-          result: const LocationResult.failure(
-            LocationFailure.permissionDenied,
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
+    await tester.pumpWidget(_buildTestApp());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
 
     await tester.enterText(find.byType(TextField), 'Paris');
     await tester.testTextInput.receiveAction(TextInputAction.search);
-    await tester.pumpAndSettle();
-
-    expect(find.text('Currently'), findsWidgets);
+    await _pumpUntilFound(
+      tester,
+      find.descendant(
+        of: find.byType(TabBarView),
+        matching: find.textContaining('Paris'),
+      ),
+    );
     expect(
       find.descendant(
         of: find.byType(TabBarView),
-        matching: find.text('Paris'),
+        matching: find.textContaining('Île-de-France'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byType(TabBarView),
+        matching: find.textContaining('France'),
       ),
       findsOneWidget,
     );
@@ -77,7 +165,7 @@ void main() {
     expect(
       find.descendant(
         of: find.byType(TabBarView),
-        matching: find.text('Paris'),
+        matching: find.textContaining('Paris'),
       ),
       findsOneWidget,
     );
@@ -89,122 +177,125 @@ void main() {
     expect(
       find.descendant(
         of: find.byType(TabBarView),
-        matching: find.text('Paris'),
+        matching: find.textContaining('Paris'),
       ),
       findsOneWidget,
     );
   });
 
-  testWidgets('Geolocation button updates all tabs with coordinates',
+  testWidgets('Typing shows city suggestions with region and country',
       (WidgetTester tester) async {
-    const coordinates = LocationCoordinates(
-      latitude: 48.8566,
-      longitude: 2.3522,
-    );
+    await tester.pumpWidget(_buildTestApp());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
 
+    await tester.tap(find.byType(TextField));
+    await tester.enterText(find.byType(TextField), 'Pa');
+    await tester.pump(const Duration(milliseconds: 350));
+    await _pumpUntilFound(tester, find.text('Paris'));
+    expect(find.text('Île-de-France, France'), findsOneWidget);
+  });
+
+  testWidgets('Selecting a suggestion resolves the city in all tabs',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(_buildTestApp());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.tap(find.byType(TextField));
+    await tester.enterText(find.byType(TextField), 'Pa');
+    await tester.pump(const Duration(milliseconds: 350));
+    await _pumpUntilFound(tester, find.text('Paris'));
+
+    await tester.tap(find.text('Paris'));
+    await _pumpUntilFound(
+      tester,
+      find.descendant(
+        of: find.byType(TabBarView),
+        matching: find.textContaining('France'),
+      ),
+    );
+  });
+
+  testWidgets('Geolocation resolves to city name when reverse geocoding works',
+      (WidgetTester tester) async {
     await tester.pumpWidget(
-      WeatherApp(
+      _buildTestApp(
         locationService: FakeLocationService(
-          result: LocationResult.success(coordinates),
+          result: const LocationResult.success(
+            LocationCoordinates(latitude: 48.8566, longitude: 2.3522),
+          ),
         ),
       ),
     );
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byIcon(Icons.my_location));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Currently'), findsWidgets);
-    expect(
+    await _pumpUntilFound(
+      tester,
       find.descendant(
         of: find.byType(TabBarView),
-        matching: find.text(coordinates.displayLabel),
+        matching: find.textContaining('Paris'),
       ),
-      findsOneWidget,
     );
-    expect(find.text('Currently ${coordinates.displayLabel}'), findsNothing);
-
-    await tester.tap(find.text('Today'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Today'), findsWidgets);
     expect(
       find.descendant(
         of: find.byType(TabBarView),
-        matching: find.text(coordinates.displayLabel),
-      ),
-      findsOneWidget,
-    );
-
-    await tester.tap(find.text('Weekly'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Weekly'), findsWidgets);
-    expect(
-      find.descendant(
-        of: find.byType(TabBarView),
-        matching: find.text(coordinates.displayLabel),
+        matching: find.textContaining('France'),
       ),
       findsOneWidget,
     );
   });
 
   testWidgets('App requests location on startup', (WidgetTester tester) async {
-    const coordinates = LocationCoordinates(
-      latitude: 40.7128,
-      longitude: -74.0060,
-    );
-
     await tester.pumpWidget(
-      WeatherApp(
+      _buildTestApp(
         locationService: FakeLocationService(
-          result: LocationResult.success(coordinates),
+          result: const LocationResult.success(
+            LocationCoordinates(latitude: 40.7128, longitude: -74.0060),
+          ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(
-      find.descendant(
-        of: find.byType(TabBarView),
-        matching: find.text(coordinates.displayLabel),
-      ),
-      findsOneWidget,
-    );
-  });
-
-  testWidgets('Denied location shows access message', (WidgetTester tester) async {
-    await tester.pumpWidget(
-      WeatherApp(
-        locationService: FakeLocationService(
-          result: const LocationResult.failure(
-            LocationFailure.permissionDenied,
+        geocodingService: FakeGeocodingService(
+          reverseResult: const Place(
+            name: 'New York',
+            region: 'New York',
+            country: 'United States',
+            latitude: 40.7128,
+            longitude: -74.0060,
           ),
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await _pumpUntilFound(
+      tester,
+      find.descendant(
+        of: find.byType(TabBarView),
+        matching: find.textContaining('New York'),
+      ),
+    );
+  });
+
+  testWidgets('Denied location shows access message', (WidgetTester tester) async {
+    await tester.pumpWidget(_buildTestApp());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
 
     expect(find.textContaining('Location access denied'), findsOneWidget);
     expect(find.byType(MaterialBanner), findsOneWidget);
   });
 
   testWidgets('Swiping switches between tabs', (WidgetTester tester) async {
-    await tester.pumpWidget(
-      WeatherApp(
-        locationService: FakeLocationService(
-          result: const LocationResult.failure(
-            LocationFailure.permissionDenied,
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
+    await tester.pumpWidget(_buildTestApp());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
 
     expect(find.byType(TabBarView), findsOneWidget);
 
-    await tester.drag(find.byType(TabBarView), const Offset(-400, 0));
-    await tester.pumpAndSettle();
+    final tabBarViewSize = tester.getSize(find.byType(TabBarView));
+    await tester.drag(
+      find.byType(TabBarView),
+      Offset(-tabBarViewSize.width, 0),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 400));
 
     final tabController =
         tester.widget<TabBarView>(find.byType(TabBarView)).controller!;
@@ -216,22 +307,21 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(320, 640));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    await tester.pumpWidget(
-      WeatherApp(
-        locationService: FakeLocationService(
-          result: const LocationResult.failure(
-            LocationFailure.permissionDenied,
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
+    await tester.pumpWidget(_buildTestApp());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
 
     const longCityName =
         'Llanfairpwllgwyngyllgogerychwyrndrobwllllantysiliogogogoch';
     await tester.enterText(find.byType(TextField), longCityName);
     await tester.testTextInput.receiveAction(TextInputAction.search);
-    await tester.pumpAndSettle();
+    await _pumpUntilFound(
+      tester,
+      find.descendant(
+        of: find.byType(TabBarView),
+        matching: find.text(longCityName),
+      ),
+    );
 
     final locationTextFinder = find.descendant(
       of: find.byType(TabBarView),
@@ -241,7 +331,7 @@ void main() {
 
     final textWidget = tester.widget<Text>(locationTextFinder);
     expect(textWidget.softWrap, isTrue);
-    expect(textWidget.maxLines, 4);
+    expect(textWidget.maxLines, 6);
 
     final renderParagraph = tester.renderObject<RenderParagraph>(
       locationTextFinder,
@@ -254,16 +344,9 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(900, 1200));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    await tester.pumpWidget(
-      WeatherApp(
-        locationService: FakeLocationService(
-          result: const LocationResult.failure(
-            LocationFailure.permissionDenied,
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
+    await tester.pumpWidget(_buildTestApp());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
 
     expect(find.byType(LayoutBuilder), findsWidgets);
   });

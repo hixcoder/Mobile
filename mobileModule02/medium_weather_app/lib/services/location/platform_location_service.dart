@@ -1,6 +1,5 @@
 import 'package:flutter/services.dart';
-
-import 'location_service.dart';
+import 'package:weather_app/services/location/location_service.dart';
 
 class PlatformLocationService implements LocationService {
   static const _channel = MethodChannel('com.example.weather_app/geolocation');
